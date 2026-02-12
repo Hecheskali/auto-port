@@ -1,0 +1,42 @@
+type User @table {
+  displayName: String!
+  createdAt: Timestamp!
+  email: String
+  role: String
+}
+
+type Device @table {
+  deviceId: String!
+  deviceName: String!
+  deviceType: String!
+  status: String!
+  lastUpdated: Timestamp!
+  currentLocation: String
+  currentTask: String
+  batteryLevel: Int
+}
+
+type StatusLog @table {
+  device: Device
+  timestamp: Timestamp!
+  newStatus: String!
+  previousStatus: String
+  notes: String
+}
+
+type Location @table {
+  locationName: String!
+  locationType: String!
+  description: String
+  coordinates: String
+}
+
+type Alert @table {
+  device: Device
+  alertType: String!
+  message: String!
+  timestamp: Timestamp!
+  isResolved: Boolean!
+  resolvedBy: User
+  resolutionNotes: String
+}

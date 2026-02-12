@@ -1,0 +1,11 @@
+{
+  "crane_id": "QC-03",
+  "online": true,
+  "status": "loading",
+  "utilization_percent": 87.2,
+  "moves_per_hour": 31,
+  "load_cycle_progress": 0.76,
+  "vessel_name": "MV Orion",
+  "stream_https_url": "https://streams.autoport.example/crane/qc-03/index.m3u8",
+  "stream_udp_url": "udp://10.2.1.19:5002"
+}

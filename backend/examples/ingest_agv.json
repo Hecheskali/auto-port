@@ -1,0 +1,13 @@
+{
+  "agv_id": "AGV-104",
+  "online": true,
+  "mission_status": "in_transit",
+  "current_zone": "Yard B2",
+  "destination_zone": "Berth 3",
+  "battery_level": 82.4,
+  "speed_kph": 18.7,
+  "eta_minutes": 4,
+  "container_id": "CAXU884910",
+  "stream_https_url": "https://streams.autoport.example/agv/104/index.m3u8",
+  "stream_udp_url": "udp://10.2.0.34:5000"
+}

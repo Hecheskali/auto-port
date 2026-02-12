@@ -1,0 +1,13 @@
+{
+  "sensor_id": "SEN-LOAD-311",
+  "name": "Load Sensor 311",
+  "kind": "load_cell",
+  "location": "QC-03",
+  "status": "online",
+  "online": true,
+  "value": 38.52,
+  "unit": "ton",
+  "anomaly": false,
+  "source_protocol": "udp",
+  "event_description": null
+}

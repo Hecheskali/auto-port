@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "472617724499",
+    "project_id": "auto-port-d3655",
+    "storage_bucket": "auto-port-d3655.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:472617724499:android:d7ea196caf6b9f42c9f4a6",
+        "android_client_info": {
+          "package_name": "com.example.auto_port"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCX_BAyE-mMMOULKRgFXgywEUSjoOq14q8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

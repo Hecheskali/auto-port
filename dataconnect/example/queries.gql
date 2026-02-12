@@ -1,0 +1,52 @@
+query ListAllDevices @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  devices {
+    id
+    deviceName
+    deviceType
+    status
+    batteryLevel
+    lastUpdated
+    currentLocation
+    currentTask
+  }
+}
+
+mutation CreateNewAlert($deviceId: UUID!, $alertType: String!, $message: String!) @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  alert_insert(data: {
+    deviceId: $deviceId,
+    alertType: $alertType,
+    message: $message,
+    isResolved: false,
+    timestamp_expr: "request.time"
+  })
+}
+
+mutation ResolveAlert($id: UUID!, $resolutionNotes: String!) @auth(level: USER) {
+  alert_update(
+    key: { id: $id },
+    data: {
+      isResolved: true,
+      resolutionNotes: $resolutionNotes,
+      resolvedById_expr: "auth.uid"
+    }
+  )
+}
+
+query GetUserAndTheirAlerts @auth(level: USER) {
+  user(key: { id_expr: "auth.uid" }) {
+    id
+    displayName
+    email
+    role
+    alerts_on_resolvedBy {
+      id
+      alertType
+      message
+      isResolved
+      timestamp
+      device {
+        deviceName
+      }
+    }
+  }
+}

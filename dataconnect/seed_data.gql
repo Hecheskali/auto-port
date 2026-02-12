@@ -1,0 +1,84 @@
+mutation CreateDemoData @transaction @auth(level: PUBLIC, insecureReason: "This mutation is used to seed demo data and is safe to expose to the public.") {
+  user_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      displayName: "demouser1",
+      email: "demouser1@example.com",
+      createdAt: "2024-01-01T00:00:00Z"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      displayName: "demouser2",
+      email: "demouser2@example.com",
+      createdAt: "2024-01-01T00:00:00Z"
+    }
+  ])
+  device_insertMany(data: [
+    {
+      id: "660e8400-e29b-41d4-a716-446655440000",
+      deviceName: "demoDevice1",
+      deviceId: "demoDevice1Id",
+      deviceType: "TypeA",
+      status: "Active",
+      lastUpdated: "2024-01-02T00:00:00Z"
+    },
+    {
+      id: "660e8400-e29b-41d4-a716-446655440001",
+      deviceName: "demoDevice2",
+      deviceId: "demoDevice2Id",
+      deviceType: "TypeB",
+      status: "Inactive",
+      lastUpdated: "2024-01-02T00:00:00Z"
+    }
+  ])
+  alert_insertMany(data: [
+    {
+      id: "770e8400-e29b-41d4-a716-446655440000",
+      deviceId: "660e8400-e29b-41d4-a716-446655440000",
+      alertType: "Overheat",
+      isResolved: false,
+      message: "Device is overheating",
+      timestamp: "2024-01-03T00:00:00Z"
+    },
+    {
+      id: "770e8400-e29b-41d4-a716-446655440001",
+      deviceId: "660e8400-e29b-41d4-a716-446655440001",
+      alertType: "Low Battery",
+      isResolved: true,
+      message: "Battery level is low",
+      timestamp: "2024-01-03T00:00:00Z",
+      resolvedById: "550e8400-e29b-41d4-a716-446655440000",
+      resolutionNotes: "Resolved by demouser1"
+    }
+  ])
+  statusLog_insertMany(data: [
+    {
+      id: "880e8400-e29b-41d4-a716-446655440000",
+      deviceId: "660e8400-e29b-41d4-a716-446655440000",
+      newStatus: "Critical",
+      previousStatus: "Active",
+      timestamp: "2024-01-04T00:00:00Z"
+    },
+    {
+      id: "880e8400-e29b-41d4-a716-446655440001",
+      deviceId: "660e8400-e29b-41d4-a716-446655440001",
+      newStatus: "Offline",
+      previousStatus: "Inactive",
+      timestamp: "2024-01-04T00:00:00Z"
+    }
+  ])
+  location_insertMany(data: [
+    {
+      id: "990e8400-e29b-41d4-a716-446655440000",
+      locationName: "LocationA",
+      locationType: "Warehouse",
+      coordinates: "34.0522,-118.2437"
+    },
+    {
+      id: "990e8400-e29b-41d4-a716-446655440001",
+      locationName: "LocationB",
+      locationType: "Distribution Center",
+      coordinates: "40.7128,-74.0060"
+    }
+  ])
+}

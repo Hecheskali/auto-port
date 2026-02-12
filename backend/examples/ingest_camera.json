@@ -1,0 +1,11 @@
+{
+  "camera_id": "YARD-CAM-12",
+  "name": "Yard Camera 12",
+  "zone": "AGV Corridor North",
+  "status": "tracking",
+  "online": true,
+  "ai_detection_count": 7,
+  "protocol": "https+udp",
+  "stream_https_url": "https://streams.autoport.example/cam/yard-12/index.m3u8",
+  "stream_udp_url": "udp://10.3.0.44:5600"
+}

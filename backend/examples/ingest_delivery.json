@@ -1,0 +1,15 @@
+{
+  "container_id": "MSKU3021184",
+  "status": "pending",
+  "owner_name": "Blue Horizon Logistics",
+  "driver_name": "Susan Kim",
+  "truck_plate": "TX-8A-2291",
+  "vessel_name": "MV Orion",
+  "origin_port": "Port Klang",
+  "destination_yard": "Yard C1",
+  "seal_number": "SL-993187",
+  "customs_status": "awaiting-stamp",
+  "arrived_at": "2026-02-12T08:24:00Z",
+  "loaded_at": "2026-02-12T08:55:30Z",
+  "expected_gate_out_at": "2026-02-12T12:30:00Z"
+}
