@@ -70,6 +70,17 @@ class OperationsRepository {
                 ..sort((a, b) => _compareByLatest(a.createdAt, b.createdAt)),
         );
   }
+
+  Future<void> refreshAll() async {
+    await Future.wait([
+      _firestore.collection('agv_units').get(),
+      _firestore.collection('cranes').get(),
+      _firestore.collection('deliveries').get(),
+      _firestore.collection('camera_feeds').get(),
+      _firestore.collection('sensor_readings').get(),
+      _firestore.collection('sensor_events').limit(20).get(),
+    ]);
+  }
 }
 
 int _compareByLatest(DateTime? left, DateTime? right) {

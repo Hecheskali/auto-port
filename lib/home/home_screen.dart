@@ -1,9 +1,147 @@
+import 'dart:ui';
+
+import 'package:auto_port/home/video_player_screen.dart';
 import 'package:auto_port/models/operations_models.dart';
+import 'package:auto_port/providers/theme_provider.dart';
 import 'package:auto_port/services/auth_service.dart';
 import 'package:auto_port/services/operations_repository.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
+// ----------------------------------------------------------------------------
+// 1. THEME & COLORS – Deep navy, electric teal, amber, rose, glassmorphism
+// ----------------------------------------------------------------------------
+class PortColors extends ThemeExtension<PortColors> {
+  final Color background;
+  final Color surfaceGlass;
+  final Color accentTeal;
+  final Color accentAmber;
+  final Color accentRose;
+  final Color textPrimary;
+  final Color textSecondary;
+
+  const PortColors({
+    required this.background,
+    required this.surfaceGlass,
+    required this.accentTeal,
+    required this.accentAmber,
+    required this.accentRose,
+    required this.textPrimary,
+    required this.textSecondary,
+  });
+
+  static const light = PortColors(
+    background: Color(0xFFF2F6FA),
+    surfaceGlass: Color(0xCCFFFFFF),
+    accentTeal: Color(0xFF2DD4BF),
+    accentAmber: Color(0xFFF59E0B),
+    accentRose: Color(0xFFEF4444),
+    textPrimary: Color(0xFF0A1A2B),
+    textSecondary: Color(0xFF52647A),
+  );
+
+  static const dark = PortColors(
+    background: Color(0xFF0A1A2B),
+    surfaceGlass: Color(0xAA1E3A5F),
+    accentTeal: Color(0xFF2DD4BF),
+    accentAmber: Color(0xFFF59E0B),
+    accentRose: Color(0xFFEF4444),
+    textPrimary: Colors.white,
+    textSecondary: Color(0xFFB0C4DE),
+  );
+
+  @override
+  PortColors copyWith({
+    Color? background,
+    Color? surfaceGlass,
+    Color? accentTeal,
+    Color? accentAmber,
+    Color? accentRose,
+    Color? textPrimary,
+    Color? textSecondary,
+  }) {
+    return PortColors(
+      background: background ?? this.background,
+      surfaceGlass: surfaceGlass ?? this.surfaceGlass,
+      accentTeal: accentTeal ?? this.accentTeal,
+      accentAmber: accentAmber ?? this.accentAmber,
+      accentRose: accentRose ?? this.accentRose,
+      textPrimary: textPrimary ?? this.textPrimary,
+      textSecondary: textSecondary ?? this.textSecondary,
+    );
+  }
+
+  @override
+  PortColors lerp(ThemeExtension<PortColors>? other, double t) {
+    if (other is! PortColors) return this;
+    return PortColors(
+      background: Color.lerp(background, other.background, t)!,
+      surfaceGlass: Color.lerp(surfaceGlass, other.surfaceGlass, t)!,
+      accentTeal: Color.lerp(accentTeal, other.accentTeal, t)!,
+      accentAmber: Color.lerp(accentAmber, other.accentAmber, t)!,
+      accentRose: Color.lerp(accentRose, other.accentRose, t)!,
+      textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
+      textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 2. UTILITIES
+// ----------------------------------------------------------------------------
+final DateFormat _timeFormat = DateFormat('HH:mm:ss');
+final DateFormat _dateFormat = DateFormat('yyyy-MM-dd');
+final DateFormat _shortTime = DateFormat('HH:mm');
+
+String formatTime(DateTime? time) =>
+    time != null ? _timeFormat.format(time.toLocal()) : 'N/A';
+String formatDate(DateTime? date) =>
+    date != null ? _dateFormat.format(date.toLocal()) : 'N/A';
+String formatShortTime(DateTime? time) =>
+    time != null ? _shortTime.format(time.toLocal()) : 'N/A';
+
+// ----------------------------------------------------------------------------
+// 3. REALTIME STATE HANDLER (loading, error, empty) – kept for lists
+// ----------------------------------------------------------------------------
+class _RealtimeState<T> extends StatelessWidget {
+  final AsyncSnapshot<List<T>> snapshot;
+  final String emptyMessage;
+  final Widget Function(List<T> data) builder;
+
+  const _RealtimeState({
+    required this.snapshot,
+    required this.emptyMessage,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (snapshot.hasError) {
+      return _EmptyDataHint(
+        icon: Icons.error_outline,
+        message: 'Failed to load data: ${snapshot.error}',
+      );
+    }
+    if (snapshot.connectionState == ConnectionState.waiting &&
+        !snapshot.hasData) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final data = snapshot.data;
+    if (data == null || data.isEmpty) {
+      return _EmptyDataHint(
+        icon: Icons.cloud_off_outlined,
+        message: emptyMessage,
+      );
+    }
+    return builder(data);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 4. MAIN DASHBOARD WITH SIDEBAR, TOP/BOTTOM BARS
+// ----------------------------------------------------------------------------
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -12,1040 +150,36 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const List<String> _titles = [
-    'AGV Status',
-    'Crane Status',
-    'Delivery Verification',
-    'Camera Operations',
-    'Sensor Operations',
-  ];
-
-  static const List<IconData> _icons = [
-    Icons.local_shipping_outlined,
-    Icons.precision_manufacturing_outlined,
-    Icons.verified_user_outlined,
-    Icons.videocam_outlined,
-    Icons.sensors_outlined,
-  ];
-
   final _authService = AuthService();
   final _operationsRepository = OperationsRepository();
-
-  int _currentIndex = 0;
-
-  Future<void> _signOut() async {
-    try {
-      await _authService.signOut();
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          const SnackBar(
-            content: Text('Unable to sign out. Please try again.'),
-            backgroundColor: Color(0xFFB00020),
-          ),
-        );
-    }
-  }
-
-  Widget _buildCurrentTab() {
-    switch (_currentIndex) {
-      case 0:
-        return _AgvStatusView(repository: _operationsRepository);
-      case 1:
-        return _CraneStatusView(repository: _operationsRepository);
-      case 2:
-        return _DeliveryVerificationView(repository: _operationsRepository);
-      case 3:
-        return _CameraOperationsView(repository: _operationsRepository);
-      case 4:
-        return _SensorOperationsView(repository: _operationsRepository);
-      default:
-        return const SizedBox.shrink();
-    }
-  }
+  int _selectedIndex = 0;
+  bool _sidebarCollapsed = false;
 
   @override
   Widget build(BuildContext context) {
-    final userLabel = _authService.currentUser?.email ?? 'Terminal Operator';
+    final themeProvider = context.watch<ThemeProvider>();
+    final colors =
+        themeProvider.isDark ? PortColors.dark : PortColors.light;
+    final baseTheme =
+        themeProvider.isDark ? ThemeData.dark() : ThemeData.light();
 
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 16,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'AutoPort Dashboard',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 19),
-            ),
-            Text(
-              _titles[_currentIndex],
-              style: const TextStyle(fontSize: 13, color: Color(0xFF9FBCD3)),
-            ),
-          ],
-        ),
-        actions: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Center(
-                child: Text(
-                  userLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFFD0DFED),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Sign out',
-            onPressed: _signOut,
-            icon: const Icon(Icons.logout_rounded),
-          ),
-        ],
+    return Theme(
+      data: baseTheme.copyWith(
+        scaffoldBackgroundColor: colors.background,
+        extensions: [colors],
+        textTheme: baseTheme.textTheme.apply(fontFamily: 'Inter'),
+        primaryTextTheme: baseTheme.primaryTextTheme.apply(fontFamily: 'Inter'),
       ),
-      body: _buildCurrentTab(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (value) {
-          setState(() => _currentIndex = value);
-        },
-        destinations: List.generate(
-          _titles.length,
-          (index) => NavigationDestination(
-            icon: Icon(_icons[index]),
-            selectedIcon: Icon(_icons[index], color: const Color(0xFFBCEAF2)),
-            label: _titles[index],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AgvStatusView extends StatelessWidget {
-  const _AgvStatusView({required this.repository});
-
-  final OperationsRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<AgvTelemetry>>(
-      stream: repository.watchAgvTelemetry(),
-      builder: (context, snapshot) {
-        final units = snapshot.data ?? const <AgvTelemetry>[];
-        final onlineCount = units.where((unit) => unit.online).length;
-        final activeCount = units
-            .where((unit) => _isActiveMission(unit.missionStatus))
-            .length;
-        final delayedCount = units.where((unit) => unit.etaMinutes > 15).length;
-        final avgBattery = units.isEmpty
-            ? 0.0
-            : units
-                      .map((unit) => unit.batteryLevel)
-                      .reduce((value, element) => value + element) /
-                  units.length;
-
-        return _DashboardScaffold(
+      child: Scaffold(
+        body: Row(
           children: [
-            const _SectionHeader(
-              title: 'AGV Fleet Health',
-              subtitle:
-                  'Real AGV telemetry streamed from Firebase and fed by FastAPI ingest.',
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _MetricCard(
-                  label: 'Online Units',
-                  value: '$onlineCount',
-                  icon: Icons.local_shipping,
-                  accent: const Color(0xFF62D2A2),
-                ),
-                _MetricCard(
-                  label: 'Active Missions',
-                  value: '$activeCount',
-                  icon: Icons.route,
-                  accent: const Color(0xFF72CCE0),
-                ),
-                _MetricCard(
-                  label: 'Avg Battery',
-                  value: '${avgBattery.toStringAsFixed(1)}%',
-                  icon: Icons.battery_charging_full,
-                  accent: const Color(0xFFF0C674),
-                ),
-                _MetricCard(
-                  label: 'Delayed',
-                  value: '$delayedCount',
-                  icon: Icons.schedule,
-                  accent: const Color(0xFFE39B86),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _Panel(
-              title: 'Live AGV Missions',
-              subtitle:
-                  'Container routing, ETA, battery level, and stream protocols.',
-              child: _RealtimeState<AgvTelemetry>(
-                snapshot: snapshot,
-                emptyMessage: 'No AGV telemetry has been published yet.',
-                child: Column(
-                  children: [
-                    for (var index = 0; index < units.length; index++) ...[
-                      _OperationTile(
-                        title:
-                            '${units[index].id} · ${units[index].missionStatus}',
-                        subtitle:
-                            'Container: ${units[index].containerId ?? 'N/A'}\n'
-                            'Route: ${units[index].currentZone} -> ${units[index].destinationZone}\n'
-                            'ETA: ${units[index].etaMinutes} min · Speed: ${units[index].speedKph.toStringAsFixed(1)} km/h\n'
-                            'Battery: ${units[index].batteryLevel.toStringAsFixed(1)}% · Updated: ${_formatDateTime(units[index].lastUpdated)}\n'
-                            'HTTPS: ${units[index].streamHttpsUrl ?? '-'}\n'
-                            'UDP: ${units[index].streamUdpUrl ?? '-'}',
-                        statusLabel: units[index].online ? 'Online' : 'Offline',
-                        statusColor: units[index].online
-                            ? const Color(0xFF62D2A2)
-                            : const Color(0xFFE39B86),
-                      ),
-                      if (index != units.length - 1)
-                        const Divider(height: 1, color: Color(0xFF1A3C56)),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _CraneStatusView extends StatelessWidget {
-  const _CraneStatusView({required this.repository});
-
-  final OperationsRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<CraneTelemetry>>(
-      stream: repository.watchCraneTelemetry(),
-      builder: (context, snapshot) {
-        final cranes = snapshot.data ?? const <CraneTelemetry>[];
-        final onlineCount = cranes.where((crane) => crane.online).length;
-        final avgUtilization = cranes.isEmpty
-            ? 0.0
-            : cranes
-                      .map((crane) => crane.utilizationPercent)
-                      .reduce((value, element) => value + element) /
-                  cranes.length;
-        final movesPerHour = cranes.fold<int>(
-          0,
-          (total, crane) => total + crane.movesPerHour,
-        );
-
-        return _DashboardScaffold(
-          children: [
-            const _SectionHeader(
-              title: 'Crane Operations',
-              subtitle:
-                  'Real crane status from camera analytics and sensor processing.',
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _MetricCard(
-                  label: 'Cranes Online',
-                  value: '$onlineCount / ${cranes.length}',
-                  icon: Icons.precision_manufacturing,
-                  accent: const Color(0xFF62D2A2),
-                ),
-                _MetricCard(
-                  label: 'Avg Utilization',
-                  value: '${avgUtilization.toStringAsFixed(1)}%',
-                  icon: Icons.trending_up,
-                  accent: const Color(0xFF72CCE0),
-                ),
-                _MetricCard(
-                  label: 'Moves / Hour',
-                  value: '$movesPerHour',
-                  icon: Icons.swap_horiz,
-                  accent: const Color(0xFFF0C674),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _Panel(
-              title: 'Live Crane Feed',
-              subtitle:
-                  'Cycle progress, vessel assignment, HTTPS and UDP streams.',
-              child: _RealtimeState<CraneTelemetry>(
-                snapshot: snapshot,
-                emptyMessage: 'No crane telemetry has been published yet.',
-                child: Column(
-                  children: [
-                    for (var index = 0; index < cranes.length; index++) ...[
-                      _ProgressRow(
-                        label:
-                            '${cranes[index].id} · ${cranes[index].vesselName ?? 'No vessel'}',
-                        state: cranes[index].status,
-                        progress: cranes[index].loadCycleProgress.clamp(0, 1),
-                        accent: _statusColor(cranes[index].status),
-                        subtitle:
-                            'Utilization: ${cranes[index].utilizationPercent.toStringAsFixed(1)}% · '
-                            'Moves/Hr: ${cranes[index].movesPerHour}\n'
-                            'Updated: ${_formatDateTime(cranes[index].lastUpdated)}\n'
-                            'HTTPS: ${cranes[index].streamHttpsUrl ?? '-'}\n'
-                            'UDP: ${cranes[index].streamUdpUrl ?? '-'}',
-                      ),
-                      if (index != cranes.length - 1)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 10),
-                          child: Divider(height: 1, color: Color(0xFF1A3C56)),
-                        ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DeliveryVerificationView extends StatelessWidget {
-  const _DeliveryVerificationView({required this.repository});
-
-  final OperationsRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<DeliveryRecord>>(
-      stream: repository.watchDeliveryRecords(),
-      builder: (context, snapshot) {
-        final deliveries = snapshot.data ?? const <DeliveryRecord>[];
-        final pending = deliveries
-            .where((record) => record.status.toLowerCase() == 'pending')
-            .length;
-        final verifiedToday = deliveries.where((record) {
-          final verifiedAt = record.verifiedAt;
-          if (verifiedAt == null) {
-            return false;
-          }
-
-          final now = DateTime.now();
-          return verifiedAt.year == now.year &&
-              verifiedAt.month == now.month &&
-              verifiedAt.day == now.day;
-        }).length;
-        final exceptions = deliveries
-            .where((record) => record.status.toLowerCase() == 'exception')
-            .length;
-
-        return _DashboardScaffold(
-          children: [
-            const _SectionHeader(
-              title: 'Delivery Verification',
-              subtitle:
-                  'Live container lifecycle from vessel arrival to gate-out execution.',
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _MetricCard(
-                  label: 'Pending Checks',
-                  value: '$pending',
-                  icon: Icons.pending_actions,
-                  accent: const Color(0xFFF0C674),
-                ),
-                _MetricCard(
-                  label: 'Verified Today',
-                  value: '$verifiedToday',
-                  icon: Icons.verified,
-                  accent: const Color(0xFF62D2A2),
-                ),
-                _MetricCard(
-                  label: 'Exceptions',
-                  value: '$exceptions',
-                  icon: Icons.report_gmailerrorred,
-                  accent: const Color(0xFFE39B86),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _Panel(
-              title: 'Container Audit Trail',
-              subtitle:
-                  'Includes owner, driver, seal, timestamps, origin, destination, and status.',
-              child: _RealtimeState<DeliveryRecord>(
-                snapshot: snapshot,
-                emptyMessage: 'No delivery records have been published yet.',
-                child: Column(
-                  children: [
-                    for (var index = 0; index < deliveries.length; index++) ...[
-                      _OperationTile(
-                        title:
-                            '${deliveries[index].containerId} · ${deliveries[index].status.toUpperCase()}',
-                        subtitle:
-                            'Owner: ${deliveries[index].ownerName} · Driver: ${deliveries[index].driverName ?? 'N/A'}\n'
-                            'Truck: ${deliveries[index].truckPlate ?? 'N/A'} · Seal: ${deliveries[index].sealNumber ?? 'N/A'}\n'
-                            'Vessel: ${deliveries[index].vesselName ?? 'N/A'} · Origin: ${deliveries[index].originPort ?? 'N/A'}\n'
-                            'Destination Yard: ${deliveries[index].destinationYard ?? 'N/A'} · Customs: ${deliveries[index].customsStatus ?? 'N/A'}\n'
-                            'Arrived: ${_formatDateTime(deliveries[index].arrivedAt)}\n'
-                            'Loaded: ${_formatDateTime(deliveries[index].loadedAt)}\n'
-                            'Verified: ${_formatDateTime(deliveries[index].verifiedAt)}\n'
-                            'Expected Gate-out: ${_formatDateTime(deliveries[index].expectedGateOutAt)}\n'
-                            'Actual Gate-out: ${_formatDateTime(deliveries[index].actualGateOutAt)}\n'
-                            'Updated: ${_formatDateTime(deliveries[index].lastUpdated)}',
-                        statusLabel: deliveries[index].status,
-                        statusColor: _statusColor(deliveries[index].status),
-                      ),
-                      if (index != deliveries.length - 1)
-                        const Divider(height: 1, color: Color(0xFF1A3C56)),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _CameraOperationsView extends StatelessWidget {
-  const _CameraOperationsView({required this.repository});
-
-  final OperationsRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<CameraFeed>>(
-      stream: repository.watchCameraFeeds(),
-      builder: (context, snapshot) {
-        final feeds = snapshot.data ?? const <CameraFeed>[];
-        final online = feeds.where((feed) => feed.online).length;
-        final detections = feeds.fold<int>(
-          0,
-          (total, feed) => total + feed.aiDetectionCount,
-        );
-        final staleFeeds = feeds.where((feed) {
-          final lastSeen = feed.lastSeen;
-          if (lastSeen == null) {
-            return true;
-          }
-
-          return DateTime.now().difference(lastSeen).inMinutes > 2;
-        }).length;
-
-        return _DashboardScaffold(
-          children: [
-            const _SectionHeader(
-              title: 'Camera Operations',
-              subtitle:
-                  'Real camera statuses and stream endpoints over HTTPS/UDP.',
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _MetricCard(
-                  label: 'Cameras Online',
-                  value: '$online / ${feeds.length}',
-                  icon: Icons.videocam,
-                  accent: const Color(0xFF72CCE0),
-                ),
-                _MetricCard(
-                  label: 'AI Detections',
-                  value: '$detections',
-                  icon: Icons.center_focus_strong,
-                  accent: const Color(0xFFF0C674),
-                ),
-                _MetricCard(
-                  label: 'Stale Feeds',
-                  value: '$staleFeeds',
-                  icon: Icons.warning_amber_rounded,
-                  accent: const Color(0xFFE39B86),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _Panel(
-              title: 'Live Stream Registry',
-              subtitle:
-                  'Use HTTPS playback links in app viewers and UDP source for edge gateways.',
-              child: _RealtimeState<CameraFeed>(
-                snapshot: snapshot,
-                emptyMessage: 'No camera feeds have been published yet.',
-                child: Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    for (final feed in feeds)
-                      _CameraFeedTile(
-                        cameraName: feed.name,
-                        location: feed.zone,
-                        status: feed.status,
-                        statusColor: _statusColor(feed.status),
-                        subtitle:
-                            'Last seen: ${_formatDateTime(feed.lastSeen)}\n'
-                            'Protocol: ${feed.protocol ?? 'N/A'}\n'
-                            'HTTPS: ${feed.streamHttpsUrl ?? '-'}\n'
-                            'UDP: ${feed.streamUdpUrl ?? '-'}',
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _SensorOperationsView extends StatelessWidget {
-  const _SensorOperationsView({required this.repository});
-
-  final OperationsRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<SensorReading>>(
-      stream: repository.watchSensorReadings(),
-      builder: (context, sensorSnapshot) {
-        final sensors = sensorSnapshot.data ?? const <SensorReading>[];
-        final onlineCount = sensors.where((sensor) => sensor.online).length;
-        final anomalies = sensors.where((sensor) => sensor.anomaly).length;
-
-        return _DashboardScaffold(
-          children: [
-            const _SectionHeader(
-              title: 'Sensor Operations',
-              subtitle:
-                  'Real machine and environmental sensor telemetry from Firebase.',
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _MetricCard(
-                  label: 'Sensors Online',
-                  value: '$onlineCount / ${sensors.length}',
-                  icon: Icons.sensors,
-                  accent: const Color(0xFF62D2A2),
-                ),
-                _MetricCard(
-                  label: 'Anomaly Alerts',
-                  value: '$anomalies',
-                  icon: Icons.notification_important_outlined,
-                  accent: const Color(0xFFE39B86),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _Panel(
-              title: 'Live Sensor Matrix',
-              subtitle:
-                  'Per-sensor current value, source protocol, and event detail.',
-              child: _RealtimeState<SensorReading>(
-                snapshot: sensorSnapshot,
-                emptyMessage: 'No sensor readings have been published yet.',
-                child: Column(
-                  children: [
-                    for (var index = 0; index < sensors.length; index++) ...[
-                      _OperationTile(
-                        title:
-                            '${sensors[index].name} · ${sensors[index].kind}',
-                        subtitle:
-                            'Location: ${sensors[index].location}\n'
-                            'Status: ${sensors[index].status}\n'
-                            'Value: ${sensors[index].value.toStringAsFixed(3)} ${sensors[index].unit}\n'
-                            'Protocol: ${sensors[index].sourceProtocol ?? 'N/A'}\n'
-                            'Last seen: ${_formatDateTime(sensors[index].lastSeen)}\n'
-                            'Event: ${sensors[index].eventDescription ?? 'No active event'}',
-                        statusLabel: sensors[index].anomaly
-                            ? 'Anomaly'
-                            : 'Normal',
-                        statusColor: sensors[index].anomaly
-                            ? const Color(0xFFE39B86)
-                            : const Color(0xFF62D2A2),
-                      ),
-                      if (index != sensors.length - 1)
-                        const Divider(height: 1, color: Color(0xFF1A3C56)),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            StreamBuilder<List<SensorEvent>>(
-              stream: repository.watchSensorEvents(),
-              builder: (context, eventSnapshot) {
-                final events = eventSnapshot.data ?? const <SensorEvent>[];
-
-                return _Panel(
-                  title: 'Recent Sensor Events',
-                  subtitle:
-                      'Events raised by FastAPI ingestion and automation logic.',
-                  child: _RealtimeState<SensorEvent>(
-                    snapshot: eventSnapshot,
-                    emptyMessage: 'No sensor events have been published yet.',
-                    child: Column(
-                      children: [
-                        for (var index = 0; index < events.length; index++) ...[
-                          _OperationTile(
-                            title: events[index].title,
-                            subtitle:
-                                'Asset: ${events[index].assetId ?? 'N/A'}\n'
-                                'Created: ${_formatDateTime(events[index].createdAt)}\n'
-                                '${events[index].description ?? 'No description'}',
-                            statusLabel: events[index].status,
-                            statusColor: _statusColor(events[index].status),
-                          ),
-                          if (index != events.length - 1)
-                            const Divider(height: 1, color: Color(0xFF1A3C56)),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _RealtimeState<T> extends StatelessWidget {
-  const _RealtimeState({
-    required this.snapshot,
-    required this.emptyMessage,
-    required this.child,
-  });
-
-  final AsyncSnapshot<List<T>> snapshot;
-  final String emptyMessage;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    if (snapshot.hasError) {
-      return _EmptyDataHint(
-        icon: Icons.error_outline,
-        message: 'Failed to load live data: ${snapshot.error}',
-      );
-    }
-
-    if (snapshot.connectionState == ConnectionState.waiting &&
-        !snapshot.hasData) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final data = snapshot.data;
-    if (data == null || data.isEmpty) {
-      return _EmptyDataHint(
-        icon: Icons.cloud_off_outlined,
-        message: emptyMessage,
-      );
-    }
-
-    return child;
-  }
-}
-
-class _DashboardScaffold extends StatelessWidget {
-  const _DashboardScaffold({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final horizontalPadding = constraints.maxWidth > 900 ? 24.0 : 16.0;
-
-        return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            16,
-            horizontalPadding,
-            24,
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1100),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: children,
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 4),
-        Text(subtitle, style: const TextStyle(color: Color(0xFF9FB1C2))),
-      ],
-    );
-  }
-}
-
-class _Panel extends StatelessWidget {
-  const _Panel({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-  });
-
-  final String title;
-  final String subtitle;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(fontSize: 13, color: Color(0xFF9FB1C2)),
-            ),
-            const SizedBox(height: 14),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.accent,
-  });
-
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 240,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF10263A),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF1A3C56)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: accent, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(label, style: const TextStyle(color: Color(0xFF9FB1C2))),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OperationTile extends StatelessWidget {
-  const _OperationTile({
-    required this.title,
-    required this.subtitle,
-    required this.statusLabel,
-    required this.statusColor,
-  });
-
-  final String title;
-  final String subtitle;
-  final String statusLabel;
-  final Color statusColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: Color(0xFF9FB1C2),
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          _TagBadge(label: statusLabel, color: statusColor),
-        ],
-      ),
-    );
-  }
-}
-
-class _TagBadge extends StatelessWidget {
-  const _TagBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.17),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: color.withValues(alpha: 0.6)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-class _ProgressRow extends StatelessWidget {
-  const _ProgressRow({
-    required this.label,
-    required this.state,
-    required this.progress,
-    required this.accent,
-    required this.subtitle,
-  });
-
-  final String label;
-  final String state;
-  final double progress;
-  final Color accent;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final percentage = (progress * 100).toStringAsFixed(0);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
+            _buildSidebar(colors),
             Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-            _TagBadge(label: state, color: accent),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 8,
-            backgroundColor: const Color(0xFF1A3C56),
-            color: accent,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          '$percentage% cycle completion',
-          style: const TextStyle(color: Color(0xFF9FB1C2)),
-        ),
-        const SizedBox(height: 5),
-        Text(
-          subtitle,
-          style: const TextStyle(color: Color(0xFF9FB1C2), fontSize: 13),
-        ),
-      ],
-    );
-  }
-}
-
-class _CameraFeedTile extends StatelessWidget {
-  const _CameraFeedTile({
-    required this.cameraName,
-    required this.location,
-    required this.status,
-    required this.statusColor,
-    required this.subtitle,
-  });
-
-  final String cameraName;
-  final String location;
-  final String status;
-  final Color statusColor;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 320,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF0E2437),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFF1A3C56)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              height: 120,
-              decoration: BoxDecoration(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(13),
-                ),
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF274E6D),
-                    statusColor.withValues(alpha: 0.45),
-                  ],
-                ),
-              ),
-              child: const Center(
-                child: Icon(
-                  Icons.videocam_rounded,
-                  size: 44,
-                  color: Color(0xFFD6F0F5),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(12),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          cameraName,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      _TagBadge(label: status, color: statusColor),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    location,
-                    style: const TextStyle(
-                      color: Color(0xFF9FB1C2),
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Color(0xFF9FB1C2),
-                      fontSize: 12,
-                    ),
-                  ),
+                  _buildTopBar(colors),
+                  Expanded(child: _buildMainContent()),
+                  _buildBottomBar(colors),
                 ],
               ),
             ),
@@ -1054,13 +188,1336 @@ class _CameraFeedTile extends StatelessWidget {
       ),
     );
   }
+
+  // ------------------------------------------------------------------------
+  // SIDEBAR
+  // ------------------------------------------------------------------------
+  Widget _buildSidebar(PortColors colors) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      width: _sidebarCollapsed ? 80 : 260,
+      child: Material(
+        color: colors.background.withOpacity(0.95),
+        elevation: 10,
+        child: Column(
+          children: [
+            Container(
+              height: 80,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  if (!_sidebarCollapsed)
+                    const Expanded(
+                      child: Text(
+                        'AUTOPORT',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      _sidebarCollapsed
+                          ? Icons.chevron_right
+                          : Icons.chevron_left,
+                      color: colors.accentTeal,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _sidebarCollapsed = !_sidebarCollapsed;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: Color(0xFF2A4A6A)),
+            Expanded(
+              child: ListView(
+                children: [
+                  _SidebarItem(
+                    icon: Icons.map_outlined,
+                    label: 'AGV Fleet',
+                    selected: _selectedIndex == 0,
+                    collapsed: _sidebarCollapsed,
+                    onTap: () => setState(() => _selectedIndex = 0),
+                  ),
+                  _SidebarItem(
+                    icon: Icons.precision_manufacturing_outlined,
+                    label: 'Cranes',
+                    selected: _selectedIndex == 1,
+                    collapsed: _sidebarCollapsed,
+                    onTap: () => setState(() => _selectedIndex = 1),
+                  ),
+                  _SidebarItem(
+                    icon: Icons.verified_user_outlined,
+                    label: 'Deliveries',
+                    selected: _selectedIndex == 2,
+                    collapsed: _sidebarCollapsed,
+                    onTap: () => setState(() => _selectedIndex = 2),
+                  ),
+                  _SidebarItem(
+                    icon: Icons.videocam_outlined,
+                    label: 'Cameras',
+                    selected: _selectedIndex == 3,
+                    collapsed: _sidebarCollapsed,
+                    onTap: () => setState(() => _selectedIndex = 3),
+                  ),
+                  _SidebarItem(
+                    icon: Icons.sensors_outlined,
+                    label: 'Sensors',
+                    selected: _selectedIndex == 4,
+                    collapsed: _sidebarCollapsed,
+                    onTap: () => setState(() => _selectedIndex = 4),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.keyboard, color: colors.textSecondary, size: 16),
+                  const SizedBox(width: 8),
+                  if (!_sidebarCollapsed)
+                    Text('⌘K', style: TextStyle(color: colors.textSecondary)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // TOP BAR – clock, weather, alerts, user
+  // ------------------------------------------------------------------------
+  Widget _buildTopBar(PortColors colors) {
+    return Container(
+      height: 60,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        color: colors.surfaceGlass,
+        border: Border(
+          bottom: BorderSide(color: colors.accentTeal.withOpacity(0.3)),
+        ),
+      ),
+      child: Row(
+        children: [
+          StreamBuilder<DateTime>(
+            stream: Stream.periodic(
+              const Duration(seconds: 1),
+              (_) => DateTime.now(),
+            ),
+            builder: (context, snapshot) {
+              final now = snapshot.data ?? DateTime.now();
+              return Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.accentTeal.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'LOC ${formatShortTime(now)}',
+                      style: TextStyle(color: colors.accentTeal),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.textSecondary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'UTC ${formatShortTime(now.toUtc())}',
+                      style: TextStyle(color: colors.textSecondary),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              Icon(Icons.wb_sunny, color: colors.accentAmber, size: 18),
+              const SizedBox(width: 6),
+              Text('--°C', style: TextStyle(color: colors.textSecondary)),
+            ],
+          ),
+          const SizedBox(width: 24),
+          IconButton(
+            icon: Icon(Icons.refresh, color: colors.textSecondary),
+            onPressed: _refreshAllData,
+            tooltip: 'Refresh data',
+          ),
+          IconButton(
+            icon: Icon(Icons.settings, color: colors.textSecondary),
+            onPressed: _showSettings,
+            tooltip: 'Settings',
+          ),
+          Stack(
+            children: [
+              IconButton(
+                icon: Icon(Icons.notifications_none, color: colors.textPrimary),
+                onPressed: () {},
+              ),
+            ],
+          ),
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: colors.accentTeal,
+            child: Text(
+              _authService.currentUser?.email?[0].toUpperCase() ?? 'O',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _refreshAllData() async {
+    await _operationsRepository.refreshAll();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Data refreshed')),
+    );
+  }
+
+  void _showSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          final colors = Theme.of(context).extension<PortColors>() ??
+              (themeProvider.isDark ? PortColors.dark : PortColors.light);
+          return Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: colors.surfaceGlass,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: Icon(
+                    themeProvider.isDark
+                        ? Icons.dark_mode
+                        : Icons.light_mode,
+                    color: colors.accentTeal,
+                  ),
+                  title: Text(
+                    'Dark Mode',
+                    style: TextStyle(color: colors.textPrimary),
+                  ),
+                  trailing: Switch(
+                    value: themeProvider.isDark,
+                    onChanged: (_) => themeProvider.toggleTheme(),
+                    activeThumbColor: colors.accentTeal,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _playVideo(BuildContext context, String url) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => VideoPlayerScreen(url: url),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // BOTTOM BAR – live KPIs (using delivery stream)
+  // ------------------------------------------------------------------------
+  Widget _buildBottomBar(PortColors colors) {
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        color: colors.surfaceGlass,
+        border: Border(
+          top: BorderSide(color: colors.accentTeal.withOpacity(0.3)),
+        ),
+      ),
+      child: StreamBuilder<List<DeliveryRecord>>(
+        stream: _operationsRepository.watchDeliveryRecords(),
+        builder: (context, snapshot) {
+          final deliveries = snapshot.data ?? const <DeliveryRecord>[];
+          final movedToday = deliveries
+              .where((d) => d.status.toLowerCase() == 'verified')
+              .length;
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _KpiWithSparkline(
+                label: 'Containers Moved',
+                value: '$movedToday',
+                trend: const [],
+                color: colors.accentTeal,
+              ),
+              _KpiWithSparkline(
+                label: 'Avg Turnaround',
+                value: '2.4h', // placeholder – compute later
+                trend: const [],
+                color: colors.accentAmber,
+              ),
+              _KpiWithSparkline(
+                label: 'Energy (MWh)',
+                value: '184', // placeholder
+                trend: const [],
+                color: colors.accentRose,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------------
+  // MAIN CONTENT – switches between modules
+  // ------------------------------------------------------------------------
+  Widget _buildMainContent() {
+    switch (_selectedIndex) {
+      case 0:
+        return _AgvTab(repository: _operationsRepository);
+      case 1:
+        return _CraneTab(repository: _operationsRepository);
+      case 2:
+        return _DeliveryTab(repository: _operationsRepository);
+      case 3:
+        return _CameraTab(
+          repository: _operationsRepository,
+          onPlayVideo: _playVideo,
+        );
+      case 4:
+        return _SensorTab(repository: _operationsRepository);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// SIDEBAR ITEM
+// ----------------------------------------------------------------------------
+class _SidebarItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final bool collapsed;
+  final VoidCallback onTap;
+
+  const _SidebarItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        decoration: BoxDecoration(
+          color: selected
+              ? colors.accentTeal.withOpacity(0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: selected ? Border.all(color: colors.accentTeal) : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: selected ? colors.accentTeal : colors.textSecondary,
+            ),
+            if (!collapsed) ...[
+              const SizedBox(width: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? colors.accentTeal : colors.textSecondary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// KPI WITH SPARKLINE
+// ----------------------------------------------------------------------------
+class _KpiWithSparkline extends StatelessWidget {
+  final String label;
+  final String value;
+  final List<double> trend;
+  final Color color;
+
+  const _KpiWithSparkline({
+    required this.label,
+    required this.value,
+    required this.trend,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        if (trend.isNotEmpty) ...[
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 60,
+            height: 30,
+            child: _SparklineChart(data: trend, color: color),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SparklineChart extends StatelessWidget {
+  final List<double> data;
+  final Color color;
+
+  const _SparklineChart({required this.data, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return LineChart(
+      LineChartData(
+        gridData: const FlGridData(show: false),
+        titlesData: const FlTitlesData(show: false),
+        borderData: FlBorderData(show: false),
+        lineBarsData: [
+          LineChartBarData(
+            spots:
+                data
+                    .asMap()
+                    .entries
+                    .map(
+                      (entry) => FlSpot(
+                        entry.key.toDouble(),
+                        entry.value,
+                      ),
+                    )
+                    .toList(),
+            isCurved: true,
+            color: color,
+            barWidth: 2,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(show: false),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// GENERIC TAB CONTAINER (with grid layout)
+// ----------------------------------------------------------------------------
+class _DashboardTab extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _DashboardTab({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w300,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Expanded(
+            child: GridView.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 600,
+                crossAxisSpacing: 20,
+                mainAxisSpacing: 20,
+                childAspectRatio: 1.4,
+              ),
+              itemCount: children.length,
+              itemBuilder: (context, index) => children[index],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// GLASS CARD WRAPPER
+// ----------------------------------------------------------------------------
+class GlassCard extends StatelessWidget {
+  final Widget child;
+  final double? height;
+  final double? width;
+  const GlassCard({super.key, required this.child, this.height, this.width});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+    return Container(
+      height: height,
+      width: width,
+      decoration: BoxDecoration(
+        color: colors.surfaceGlass,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.accentTeal.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: Padding(padding: const EdgeInsets.all(16), child: child),
+        ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 1. AGV TAB – 2.5D MAP + METRICS
+// ----------------------------------------------------------------------------
+class _AgvTab extends StatelessWidget {
+  final OperationsRepository repository;
+  const _AgvTab({required this.repository});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+
+    return _DashboardTab(
+      title: 'AGV Fleet',
+      children: [
+        // 1. Interactive Yard Map
+        GlassCard(
+          height: 420,
+          child: StreamBuilder<List<AgvTelemetry>>(
+            stream: repository.watchAgvTelemetry(),
+            builder: (context, snapshot) {
+              return _RealtimeState<AgvTelemetry>(
+                snapshot: snapshot,
+                emptyMessage: 'No AGV telemetry available.',
+                builder: (units) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Interactive Yard Map', style: _titleStyle),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: CustomPaint(
+                        painter: _AgvMapPainter(units: units),
+                        size: const Size(800, 500),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        // 2. Online Units
+        GlassCard(
+          child: StreamBuilder<List<AgvTelemetry>>(
+            stream: repository.watchAgvTelemetry(),
+            builder: (context, snapshot) {
+              final units = snapshot.data ?? const <AgvTelemetry>[];
+              return _MetricWidget(
+                label: 'Online',
+                value: '${units.onlineCount}',
+                color: colors.accentTeal,
+              );
+            },
+          ),
+        ),
+        // 3. Avg Battery
+        GlassCard(
+          child: StreamBuilder<List<AgvTelemetry>>(
+            stream: repository.watchAgvTelemetry(),
+            builder: (context, snapshot) {
+              final units = snapshot.data ?? const <AgvTelemetry>[];
+              return _MetricWidget(
+                label: 'Avg Battery',
+                value: '${units.avgBattery.toStringAsFixed(1)}%',
+                color: colors.accentAmber,
+              );
+            },
+          ),
+        ),
+        // 4. Active Missions
+        GlassCard(
+          child: StreamBuilder<List<AgvTelemetry>>(
+            stream: repository.watchAgvTelemetry(),
+            builder: (context, snapshot) {
+              final units = snapshot.data ?? const <AgvTelemetry>[];
+              return _MetricWidget(
+                label: 'Active Missions',
+                value: '${units.activeCount}',
+                color: colors.accentRose,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  TextStyle get _titleStyle =>
+      const TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
+}
+
+// AGV map painter – uses deterministic placement based on id
+class _AgvMapPainter extends CustomPainter {
+  final List<AgvTelemetry> units;
+  _AgvMapPainter({required this.units});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = Colors.white.withOpacity(0.1)
+      ..strokeWidth = 0.5;
+    for (int i = 0; i <= 10; i++) {
+      double x = i * size.width / 10;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+      double y = i * size.height / 10;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    for (var unit in units) {
+      double x = (unit.id.hashCode % 100) / 100 * size.width;
+      double y = (unit.id.hashCode ~/ 100 % 100) / 100 * size.height;
+
+      final dotPaint = Paint()
+        ..color = unit.online ? const Color(0xFF2DD4BF) : Colors.grey
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+      canvas.drawCircle(Offset(x, y), 10, dotPaint);
+      dotPaint.maskFilter = null;
+      canvas.drawCircle(Offset(x, y), 4, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AgvMapPainter oldDelegate) =>
+      oldDelegate.units != units;
+}
+
+// ----------------------------------------------------------------------------
+// 2. CRANE TAB – GANTT TIMELINE + METRICS
+// ----------------------------------------------------------------------------
+class _CraneTab extends StatelessWidget {
+  final OperationsRepository repository;
+  const _CraneTab({required this.repository});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+
+    return _DashboardTab(
+      title: 'Crane Operations',
+      children: [
+        // Timeline card
+        GlassCard(
+          height: 300,
+          child: StreamBuilder<List<CraneTelemetry>>(
+            stream: repository.watchCraneTelemetry(),
+            builder: (context, snapshot) {
+              return _RealtimeState<CraneTelemetry>(
+                snapshot: snapshot,
+                emptyMessage: 'No crane telemetry available.',
+                builder: (cranes) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Timeline View', style: _titleStyle),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: cranes.length,
+                        itemBuilder: (context, index) {
+                          final crane = cranes[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 80,
+                                  child: Text(
+                                    crane.id,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Container(
+                                    height: 30,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: FractionallySizedBox(
+                                      alignment: Alignment.centerLeft,
+                                      widthFactor: crane.loadCycleProgress
+                                          .clamp(0, 1),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: _statusColor(
+                                            context,
+                                            crane.status,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        // Online metric
+        GlassCard(
+          child: StreamBuilder<List<CraneTelemetry>>(
+            stream: repository.watchCraneTelemetry(),
+            builder: (context, snapshot) {
+              final cranes = snapshot.data ?? const <CraneTelemetry>[];
+              final online = cranes.where((c) => c.online).length;
+              return _MetricWidget(
+                label: 'Online',
+                value: '$online/${cranes.length}',
+                color: colors.accentTeal,
+              );
+            },
+          ),
+        ),
+        // Avg Utilization
+        GlassCard(
+          child: StreamBuilder<List<CraneTelemetry>>(
+            stream: repository.watchCraneTelemetry(),
+            builder: (context, snapshot) {
+              final cranes = snapshot.data ?? const <CraneTelemetry>[];
+              final avgUtil = cranes.isEmpty
+                  ? 0.0
+                  : cranes
+                            .map((c) => c.utilizationPercent)
+                            .reduce((a, b) => a + b) /
+                        cranes.length;
+              return _MetricWidget(
+                label: 'Avg Utilization',
+                value: '${avgUtil.toStringAsFixed(1)}%',
+                color: colors.accentAmber,
+              );
+            },
+          ),
+        ),
+        // Moves/Hour
+        GlassCard(
+          child: StreamBuilder<List<CraneTelemetry>>(
+            stream: repository.watchCraneTelemetry(),
+            builder: (context, snapshot) {
+              final cranes = snapshot.data ?? const <CraneTelemetry>[];
+              final moves = cranes.fold(0, (sum, c) => sum + c.movesPerHour);
+              return _MetricWidget(
+                label: 'Moves/Hour',
+                value: '$moves',
+                color: colors.accentRose,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  TextStyle get _titleStyle =>
+      const TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
+}
+
+// ----------------------------------------------------------------------------
+// 3. DELIVERY TAB – KANBAN BOARD + METRICS
+// ----------------------------------------------------------------------------
+class _DeliveryTab extends StatelessWidget {
+  final OperationsRepository repository;
+  const _DeliveryTab({required this.repository});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+
+    return _DashboardTab(
+      title: 'Delivery Verification',
+      children: [
+        // Kanban board
+        GlassCard(
+          height: 400,
+          child: StreamBuilder<List<DeliveryRecord>>(
+            stream: repository.watchDeliveryRecords(),
+            builder: (context, snapshot) {
+              return _RealtimeState<DeliveryRecord>(
+                snapshot: snapshot,
+                emptyMessage: 'No delivery records available.',
+                builder: (deliveries) {
+                  final pending = deliveries
+                      .where((d) => d.status.toLowerCase() == 'pending')
+                      .toList();
+                  final verified = deliveries
+                      .where((d) => d.status.toLowerCase() == 'verified')
+                      .toList();
+                  final exceptions = deliveries
+                      .where((d) => d.status.toLowerCase() == 'exception')
+                      .toList();
+                  return Row(
+                    children: [
+                      _KanbanColumn(
+                        title: 'PENDING',
+                        items: pending,
+                        color: colors.accentAmber,
+                      ),
+                      _KanbanColumn(
+                        title: 'VERIFIED',
+                        items: verified,
+                        color: colors.accentTeal,
+                      ),
+                      _KanbanColumn(
+                        title: 'EXCEPTION',
+                        items: exceptions,
+                        color: colors.accentRose,
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        // Pending count
+        GlassCard(
+          child: StreamBuilder<List<DeliveryRecord>>(
+            stream: repository.watchDeliveryRecords(),
+            builder: (context, snapshot) {
+              final deliveries = snapshot.data ?? const <DeliveryRecord>[];
+              final pending = deliveries
+                  .where((d) => d.status.toLowerCase() == 'pending')
+                  .length;
+              return _MetricWidget(
+                label: 'Pending',
+                value: '$pending',
+                color: colors.accentAmber,
+              );
+            },
+          ),
+        ),
+        // Verified today
+        GlassCard(
+          child: StreamBuilder<List<DeliveryRecord>>(
+            stream: repository.watchDeliveryRecords(),
+            builder: (context, snapshot) {
+              final deliveries = snapshot.data ?? const <DeliveryRecord>[];
+              final now = DateTime.now();
+              final verifiedToday = deliveries.where((d) {
+                final v = d.verifiedAt;
+                return v != null &&
+                    v.year == now.year &&
+                    v.month == now.month &&
+                    v.day == now.day;
+              }).length;
+              return _MetricWidget(
+                label: 'Verified Today',
+                value: '$verifiedToday',
+                color: colors.accentTeal,
+              );
+            },
+          ),
+        ),
+        // Exceptions
+        GlassCard(
+          child: StreamBuilder<List<DeliveryRecord>>(
+            stream: repository.watchDeliveryRecords(),
+            builder: (context, snapshot) {
+              final deliveries = snapshot.data ?? const <DeliveryRecord>[];
+              final exceptions = deliveries
+                  .where((d) => d.status.toLowerCase() == 'exception')
+                  .length;
+              return _MetricWidget(
+                label: 'Exceptions',
+                value: '$exceptions',
+                color: colors.accentRose,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KanbanColumn extends StatelessWidget {
+  final String title;
+  final List<DeliveryRecord> items;
+  final Color color;
+  const _KanbanColumn({
+    required this.title,
+    required this.items,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: color.withOpacity(0.2),
+            child: Text(
+              title,
+              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return Card(
+                  margin: const EdgeInsets.all(4),
+                  child: ListTile(
+                    title: Text(item.containerId),
+                    subtitle: Text(
+                      'ETA: ${formatShortTime(item.expectedGateOutAt)}',
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 4. CAMERA TAB – LIVE THUMBNAILS + METRICS
+// ----------------------------------------------------------------------------
+class _CameraTab extends StatelessWidget {
+  final OperationsRepository repository;
+  final void Function(BuildContext context, String url) onPlayVideo;
+  const _CameraTab({required this.repository, required this.onPlayVideo});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+
+    return _DashboardTab(
+      title: 'Camera Feeds',
+      children: [
+        // Thumbnail grid
+        GlassCard(
+          height: 300,
+          child: StreamBuilder<List<CameraFeed>>(
+            stream: repository.watchCameraFeeds(),
+            builder: (context, snapshot) {
+              return _RealtimeState<CameraFeed>(
+                snapshot: snapshot,
+                emptyMessage: 'No camera feeds available.',
+                builder: (feeds) => GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 1.5,
+                  ),
+                  itemCount: feeds.length,
+                  itemBuilder: (context, index) {
+                    final feed = feeds[index];
+                    return _CameraThumbnail(
+                      feed: feed,
+                      onPlayVideo: onPlayVideo,
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        // Cameras online
+        GlassCard(
+          child: StreamBuilder<List<CameraFeed>>(
+            stream: repository.watchCameraFeeds(),
+            builder: (context, snapshot) {
+              final feeds = snapshot.data ?? const <CameraFeed>[];
+              final online = feeds.where((f) => f.online).length;
+              return _MetricWidget(
+                label: 'Online',
+                value: '$online/${feeds.length}',
+                color: colors.accentTeal,
+              );
+            },
+          ),
+        ),
+        // AI Detections (if available)
+        GlassCard(
+          child: StreamBuilder<List<CameraFeed>>(
+            stream: repository.watchCameraFeeds(),
+            builder: (context, snapshot) {
+              final feeds = snapshot.data ?? const <CameraFeed>[];
+              final detections = feeds.fold(
+                0,
+                (sum, f) => sum + f.aiDetectionCount,
+              );
+              return _MetricWidget(
+                label: 'AI Detections',
+                value: '$detections',
+                color: colors.accentAmber,
+              );
+            },
+          ),
+        ),
+        // Stale feeds
+        GlassCard(
+          child: StreamBuilder<List<CameraFeed>>(
+            stream: repository.watchCameraFeeds(),
+            builder: (context, snapshot) {
+              final feeds = snapshot.data ?? const <CameraFeed>[];
+              final now = DateTime.now();
+              final stale = feeds.where((f) {
+                final last = f.lastSeen;
+                return last == null || now.difference(last).inMinutes > 2;
+              }).length;
+              return _MetricWidget(
+                label: 'Stale',
+                value: '$stale',
+                color: colors.accentRose,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CameraThumbnail extends StatelessWidget {
+  final CameraFeed feed;
+  final void Function(BuildContext context, String url) onPlayVideo;
+  const _CameraThumbnail({required this.feed, required this.onPlayVideo});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+    final hasStream =
+        feed.streamHttpsUrl != null && feed.streamHttpsUrl!.isNotEmpty;
+    final imageProvider = hasStream
+        ? NetworkImage(feed.streamHttpsUrl!) as ImageProvider
+        : null;
+
+    return GestureDetector(
+      onTap: hasStream ? () => onPlayVideo(context, feed.streamHttpsUrl!) : null,
+      child: Container(
+      margin: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black26,
+        borderRadius: BorderRadius.circular(8),
+        image:
+            imageProvider != null
+                ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
+                : null,
+      ),
+      child: Stack(
+        children: [
+          if (!hasStream)
+            const Center(
+              child: Icon(Icons.videocam, color: Colors.white24, size: 36),
+            ),
+          Positioned(
+            right: 8,
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: feed.online ? colors.accentTeal : colors.accentRose,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                feed.online ? 'LIVE' : 'OFFLINE',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          if (feed.online && hasStream)
+            const Positioned(
+              left: 8,
+              top: 8,
+              child: Icon(
+                Icons.play_circle_filled,
+                color: Colors.white70,
+                size: 30,
+              ),
+            ),
+        ],
+      ),
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 5. SENSOR TAB – GRID + METRICS
+// ----------------------------------------------------------------------------
+class _SensorTab extends StatelessWidget {
+  final OperationsRepository repository;
+  const _SensorTab({required this.repository});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+
+    return _DashboardTab(
+      title: 'Sensor Grid',
+      children: [
+        // Sensor tile grid
+        GlassCard(
+          height: 300,
+          child: StreamBuilder<List<SensorReading>>(
+            stream: repository.watchSensorReadings(),
+            builder: (context, snapshot) {
+              return _RealtimeState<SensorReading>(
+                snapshot: snapshot,
+                emptyMessage: 'No sensor readings available.',
+                builder: (sensors) => GridView.builder(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    childAspectRatio: 1.2,
+                  ),
+                  itemCount: sensors.length,
+                  itemBuilder: (context, index) {
+                    final sensor = sensors[index];
+                    return _SensorTile(sensor: sensor);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        // Sensors online
+        GlassCard(
+          child: StreamBuilder<List<SensorReading>>(
+            stream: repository.watchSensorReadings(),
+            builder: (context, snapshot) {
+              final sensors = snapshot.data ?? const <SensorReading>[];
+              final online = sensors.where((s) => s.online).length;
+              return _MetricWidget(
+                label: 'Online',
+                value: '$online/${sensors.length}',
+                color: colors.accentTeal,
+              );
+            },
+          ),
+        ),
+        // Anomalies
+        GlassCard(
+          child: StreamBuilder<List<SensorReading>>(
+            stream: repository.watchSensorReadings(),
+            builder: (context, snapshot) {
+              final sensors = snapshot.data ?? const <SensorReading>[];
+              final anomalies = sensors.where((s) => s.anomaly).length;
+              return _MetricWidget(
+                label: 'Anomalies',
+                value: '$anomalies',
+                color: colors.accentRose,
+              );
+            },
+          ),
+        ),
+        // Placeholder for third metric (e.g., avg value)
+        GlassCard(
+          child: StreamBuilder<List<SensorReading>>(
+            stream: repository.watchSensorReadings(),
+            builder: (context, snapshot) {
+              final sensors = snapshot.data ?? const <SensorReading>[];
+              // Dummy average of first sensor if exists
+              final avg = sensors.isEmpty
+                  ? 0.0
+                  : sensors.map((s) => s.value).reduce((a, b) => a + b) /
+                        sensors.length;
+              return _MetricWidget(
+                label: 'Avg Value',
+                value: avg.toStringAsFixed(1),
+                color: colors.accentAmber,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SensorTile extends StatelessWidget {
+  final SensorReading sensor;
+  const _SensorTile({required this.sensor});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).extension<PortColors>()!;
+    return Container(
+      margin: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: sensor.anomaly ? colors.accentRose.withOpacity(0.2) : null,
+        borderRadius: BorderRadius.circular(12),
+        border: sensor.anomaly ? Border.all(color: colors.accentRose) : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            sensor.name,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text('${sensor.value.toStringAsFixed(2)} ${sensor.unit}'),
+          const SizedBox(height: 4),
+          if (sensor.recentValues.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 32,
+              child: _SparklineChart(
+                data: sensor.recentValues,
+                color: colors.accentTeal,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// HELPER WIDGETS
+// ----------------------------------------------------------------------------
+class _MetricWidget extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _MetricWidget({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70)),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 32,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _EmptyDataHint extends StatelessWidget {
-  const _EmptyDataHint({required this.icon, required this.message});
-
   final IconData icon;
   final String message;
+  const _EmptyDataHint({required this.icon, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -1089,49 +1546,48 @@ class _EmptyDataHint extends StatelessWidget {
   }
 }
 
+// ----------------------------------------------------------------------------
+// STATUS COLOR HELPER
+// ----------------------------------------------------------------------------
+Color _statusColor(BuildContext context, String status) {
+  final colors = Theme.of(context).extension<PortColors>()!;
+  switch (status.toLowerCase()) {
+    case 'online':
+    case 'active':
+    case 'verified':
+      return colors.accentTeal;
+    case 'warning':
+    case 'degraded':
+    case 'pending':
+      return colors.accentAmber;
+    case 'offline':
+    case 'error':
+    case 'exception':
+      return colors.accentRose;
+    default:
+      return colors.textSecondary;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// EXTENSION METHODS FOR LIST METRICS
+// ----------------------------------------------------------------------------
+extension AgvListExt on List<AgvTelemetry> {
+  int get onlineCount => where((unit) => unit.online).length;
+  int get activeCount =>
+      where((unit) => _isActiveMission(unit.missionStatus)).length;
+  int get delayedCount => where((unit) => unit.etaMinutes > 15).length;
+  double get avgBattery =>
+      isEmpty ? 0 : map((u) => u.batteryLevel).reduce((a, b) => a + b) / length;
+}
+
 bool _isActiveMission(String status) {
-  final normalized = status.trim().toLowerCase();
-  return normalized == 'active' ||
-      normalized == 'loading' ||
-      normalized == 'unloading' ||
-      normalized == 'in_transit' ||
-      normalized == 'in-transit';
-}
-
-Color _statusColor(String status) {
-  final normalized = status.trim().toLowerCase();
-
-  if (normalized == 'online' ||
-      normalized == 'verified' ||
-      normalized == 'normal' ||
-      normalized == 'completed' ||
-      normalized == 'mitigated') {
-    return const Color(0xFF62D2A2);
-  }
-
-  if (normalized == 'pending' ||
-      normalized == 'review' ||
-      normalized == 'degraded' ||
-      normalized == 'congestion') {
-    return const Color(0xFFF0C674);
-  }
-
-  if (normalized == 'offline' ||
-      normalized == 'exception' ||
-      normalized == 'alert' ||
-      normalized == 'error') {
-    return const Color(0xFFE39B86);
-  }
-
-  return const Color(0xFF72CCE0);
-}
-
-final DateFormat _timestampFormat = DateFormat('yyyy-MM-dd HH:mm:ss');
-
-String _formatDateTime(DateTime? value) {
-  if (value == null) {
-    return 'N/A';
-  }
-
-  return _timestampFormat.format(value.toLocal());
+  const activeStates = {
+    'active',
+    'loading',
+    'unloading',
+    'in_transit',
+    'in-transit',
+  };
+  return activeStates.contains(status.trim().toLowerCase());
 }

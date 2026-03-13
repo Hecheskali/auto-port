@@ -218,6 +218,7 @@ class SensorReading {
     required this.value,
     required this.unit,
     required this.anomaly,
+    this.recentValues = const [],
     this.sourceProtocol,
     this.eventDescription,
     this.lastSeen,
@@ -232,6 +233,7 @@ class SensorReading {
   final double value;
   final String unit;
   final bool anomaly;
+  final List<double> recentValues;
   final String? sourceProtocol;
   final String? eventDescription;
   final DateTime? lastSeen;
@@ -251,6 +253,7 @@ class SensorReading {
       value: _asDouble(data['value']),
       unit: _asString(data['unit'], fallback: ''),
       anomaly: _asBool(data['anomaly'], fallback: false),
+      recentValues: _asDoubleList(data['recentValues']),
       sourceProtocol: _asNullableString(data['sourceProtocol']),
       eventDescription: _asNullableString(data['eventDescription']),
       lastSeen: _asDateTime(data['lastSeen'] ?? data['recordedAt']),
@@ -325,6 +328,14 @@ double _asDouble(dynamic value, {double fallback = 0}) {
   }
 
   return fallback;
+}
+
+List<double> _asDoubleList(dynamic value) {
+  if (value is List) {
+    return value.map((entry) => _asDouble(entry)).toList();
+  }
+
+  return const [];
 }
 
 int _asInt(dynamic value, {int fallback = 0}) {
