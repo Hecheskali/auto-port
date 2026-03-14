@@ -1,6 +1,6 @@
 import 'package:auto_port/auth/auth_validators.dart';
-import 'package:auto_port/services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -12,8 +12,6 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  final _authService = AuthService();
-
   bool _isLoading = false;
   bool _emailSent = false;
 
@@ -23,40 +21,44 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     super.dispose();
   }
 
+  // Function to send the reset email
   Future<void> _sendResetEmail() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     FocusScope.of(context).unfocus();
     setState(() => _isLoading = true);
 
     try {
-      await _authService.sendPasswordResetEmail(_emailController.text);
+      // Firebase Auth call
+      await FirebaseAuth.instance.sendPasswordResetEmail(
+        email: _emailController.text.trim(),
+      );
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
 
       setState(() => _emailSent = true);
-    } catch (error) {
-      if (!mounted) {
-        return;
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      // Customize error messages
+      String message;
+      if (e.code == 'user-not-found') {
+        message = 'If this email exists, a password reset email has been sent.';
+      } else {
+        message = e.message ?? 'Unable to send reset email. Please try again.';
       }
 
-      _showError(error);
+      _showError(message);
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Unable to send reset email. Please try again.');
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showError(Object error) {
-    final message = error is String
-        ? error
-        : 'Unable to send reset email. Please try again.';
-
+  // Show error snackbar
+  void _showError(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -98,6 +100,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     );
   }
 
+  // Form UI
   Widget _buildForm() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -145,6 +148,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     );
   }
 
+  // Success UI
   Widget _buildSuccessState() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,7 @@
 import 'package:auto_port/auth/forgot_password_screen.dart';
 import 'package:auto_port/auth/login_screen.dart';
 import 'package:auto_port/home/home_screen.dart';
+import 'package:auto_port/home/settings_notifications.dart';
 import 'package:auto_port/providers/theme_provider.dart';
 import 'package:auto_port/services/auth_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -26,8 +27,12 @@ Future<void> main() async {
   }
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
+      ],
       child: AutoPortApp(bootstrapError: bootstrapError),
     ),
   );

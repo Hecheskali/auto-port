@@ -8,6 +8,7 @@ import 'package:auto_port/services/operations_repository.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:auto_port/home/settings_notifications.dart';
 import 'package:provider/provider.dart';
 
 // ----------------------------------------------------------------------------
@@ -155,13 +156,31 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   bool _sidebarCollapsed = false;
 
+  // Fixed logout method – no manual navigation, auth state listener handles it
+  Future<void> _signOut() async {
+    try {
+      await _authService.signOut();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Signed out successfully')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-    final colors =
-        themeProvider.isDark ? PortColors.dark : PortColors.light;
-    final baseTheme =
-        themeProvider.isDark ? ThemeData.dark() : ThemeData.light();
+    final colors = themeProvider.isDark ? PortColors.dark : PortColors.light;
+    final baseTheme = themeProvider.isDark
+        ? ThemeData.dark()
+        : ThemeData.light();
 
     return Theme(
       data: baseTheme.copyWith(
@@ -171,6 +190,7 @@ class _HomeScreenState extends State<HomeScreen> {
         primaryTextTheme: baseTheme.primaryTextTheme.apply(fontFamily: 'Inter'),
       ),
       child: Scaffold(
+        drawer: NotificationPanel(),
         body: Row(
           children: [
             _buildSidebar(colors),
@@ -189,9 +209,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ------------------------------------------------------------------------
   // SIDEBAR
-  // ------------------------------------------------------------------------
+
   Widget _buildSidebar(PortColors colors) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
@@ -294,9 +313,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ------------------------------------------------------------------------
-  // TOP BAR – clock, weather, alerts, user
-  // ------------------------------------------------------------------------
+  // TOP BAR – clock, weather, alerts, user with logout popup
+
   Widget _buildTopBar(PortColors colors) {
     return Container(
       height: 60,
@@ -352,6 +370,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           const Spacer(),
+
           Row(
             children: [
               Icon(Icons.wb_sunny, color: colors.accentAmber, size: 18),
@@ -367,36 +386,120 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           IconButton(
             icon: Icon(Icons.settings, color: colors.textSecondary),
-            onPressed: _showSettings,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      SettingsPanel(userEmail: _authService.currentUser?.email),
+                ),
+              );
+            },
             tooltip: 'Settings',
           ),
-          Stack(
-            children: [
-              IconButton(
-                icon: Icon(Icons.notifications_none, color: colors.textPrimary),
-                onPressed: () {},
+          // Notifications with badge and drawer trigger
+          Builder(
+            builder: (context) {
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.notifications_none,
+                      color: colors.textPrimary,
+                    ),
+                    onPressed: () {
+                      Scaffold.of(context).openDrawer();
+                    },
+                  ),
+                  Consumer<NotificationProvider>(
+                    builder: (context, provider, _) {
+                      if (provider.unreadCount == 0) {
+                        return const SizedBox.shrink();
+                      }
+                      return Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            '${provider.unreadCount}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.white,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+          // Logout popup menu replacing the avatar
+          PopupMenuButton<String>(
+            offset: const Offset(0, 40),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: colors.accentTeal,
+              child: Text(
+                _authService.currentUser?.email?[0].toUpperCase() ?? 'O',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            onSelected: (value) async {
+              if (value == 'logout') {
+                await _signOut();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'email',
+                enabled: false,
+                child: Text(
+                  _authService.currentUser?.email ?? 'User',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 18),
+                    SizedBox(width: 8),
+                    Text('Logout'),
+                  ],
+                ),
               ),
             ],
-          ),
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: colors.accentTeal,
-            child: Text(
-              _authService.currentUser?.email?[0].toUpperCase() ?? 'O',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
           ),
         ],
       ),
     );
   }
 
+  // setting and refresh functions
   Future<void> _refreshAllData() async {
     await _operationsRepository.refreshAll();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Data refreshed')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Data refreshed')));
   }
 
   void _showSettings() {
@@ -405,7 +508,8 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
-          final colors = Theme.of(context).extension<PortColors>() ??
+          final colors =
+              Theme.of(context).extension<PortColors>() ??
               (themeProvider.isDark ? PortColors.dark : PortColors.light);
           return Container(
             padding: const EdgeInsets.all(24),
@@ -420,9 +524,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 ListTile(
                   leading: Icon(
-                    themeProvider.isDark
-                        ? Icons.dark_mode
-                        : Icons.light_mode,
+                    themeProvider.isDark ? Icons.dark_mode : Icons.light_mode,
                     color: colors.accentTeal,
                   ),
                   title: Text(
@@ -458,9 +560,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ------------------------------------------------------------------------
   // BOTTOM BAR – live KPIs (using delivery stream)
-  // ------------------------------------------------------------------------
+
   Widget _buildBottomBar(PortColors colors) {
     return Container(
       height: 70,
@@ -490,13 +591,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               _KpiWithSparkline(
                 label: 'Avg Turnaround',
-                value: '2.4h', // placeholder – compute later
+                value:
+                    '2.4h', // placeholder – compute later after tumepata hardware data
                 trend: const [],
                 color: colors.accentAmber,
               ),
               _KpiWithSparkline(
                 label: 'Energy (MWh)',
-                value: '184', // placeholder
+                value:
+                    '184', // placeholder -– compute later after tumepata hardware data
                 trend: const [],
                 color: colors.accentRose,
               ),
@@ -507,9 +610,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ------------------------------------------------------------------------
   // MAIN CONTENT – switches between modules
-  // ------------------------------------------------------------------------
+
   Widget _buildMainContent() {
     switch (_selectedIndex) {
       case 0:
@@ -531,9 +633,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ----------------------------------------------------------------------------
 // SIDEBAR ITEM
-// ----------------------------------------------------------------------------
+
 class _SidebarItem extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -587,9 +688,8 @@ class _SidebarItem extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------------------------
 // KPI WITH SPARKLINE
-// ----------------------------------------------------------------------------
+
 class _KpiWithSparkline extends StatelessWidget {
   final String label;
   final String value;
@@ -649,17 +749,11 @@ class _SparklineChart extends StatelessWidget {
         borderData: FlBorderData(show: false),
         lineBarsData: [
           LineChartBarData(
-            spots:
-                data
-                    .asMap()
-                    .entries
-                    .map(
-                      (entry) => FlSpot(
-                        entry.key.toDouble(),
-                        entry.value,
-                      ),
-                    )
-                    .toList(),
+            spots: data
+                .asMap()
+                .entries
+                .map((entry) => FlSpot(entry.key.toDouble(), entry.value))
+                .toList(),
             isCurved: true,
             color: color,
             barWidth: 2,
@@ -672,9 +766,8 @@ class _SparklineChart extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------------------------
 // GENERIC TAB CONTAINER (with grid layout)
-// ----------------------------------------------------------------------------
+
 class _DashboardTab extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -714,9 +807,8 @@ class _DashboardTab extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------------------------
 // GLASS CARD WRAPPER
-// ----------------------------------------------------------------------------
+
 class GlassCard extends StatelessWidget {
   final Widget child;
   final double? height;
@@ -752,9 +844,8 @@ class GlassCard extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------------------------
 // 1. AGV TAB – 2.5D MAP + METRICS
-// ----------------------------------------------------------------------------
+
 class _AgvTab extends StatelessWidget {
   final OperationsRepository repository;
   const _AgvTab({required this.repository});
@@ -877,9 +968,8 @@ class _AgvMapPainter extends CustomPainter {
       oldDelegate.units != units;
 }
 
-// ----------------------------------------------------------------------------
 // 2. CRANE TAB – GANTT TIMELINE + METRICS
-// ----------------------------------------------------------------------------
+
 class _CraneTab extends StatelessWidget {
   final OperationsRepository repository;
   const _CraneTab({required this.repository});
@@ -1018,9 +1108,8 @@ class _CraneTab extends StatelessWidget {
       const TextStyle(fontSize: 18, fontWeight: FontWeight.w600);
 }
 
-// ----------------------------------------------------------------------------
 // 3. DELIVERY TAB – KANBAN BOARD + METRICS
-// ----------------------------------------------------------------------------
+
 class _DeliveryTab extends StatelessWidget {
   final OperationsRepository repository;
   const _DeliveryTab({required this.repository});
@@ -1183,9 +1272,8 @@ class _KanbanColumn extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------------------------
 // 4. CAMERA TAB – LIVE THUMBNAILS + METRICS
-// ----------------------------------------------------------------------------
+
 class _CameraTab extends StatelessWidget {
   final OperationsRepository repository;
   final void Function(BuildContext context, String url) onPlayVideo;
@@ -1297,61 +1385,61 @@ class _CameraThumbnail extends StatelessWidget {
         : null;
 
     return GestureDetector(
-      onTap: hasStream ? () => onPlayVideo(context, feed.streamHttpsUrl!) : null,
+      onTap: hasStream
+          ? () => onPlayVideo(context, feed.streamHttpsUrl!)
+          : null,
       child: Container(
-      margin: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.black26,
-        borderRadius: BorderRadius.circular(8),
-        image:
-            imageProvider != null
-                ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
-                : null,
-      ),
-      child: Stack(
-        children: [
-          if (!hasStream)
-            const Center(
-              child: Icon(Icons.videocam, color: Colors.white24, size: 36),
-            ),
-          Positioned(
-            right: 8,
-            bottom: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: feed.online ? colors.accentTeal : colors.accentRose,
-                borderRadius: BorderRadius.circular(4),
+        margin: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: Colors.black26,
+          borderRadius: BorderRadius.circular(8),
+          image: imageProvider != null
+              ? DecorationImage(image: imageProvider, fit: BoxFit.cover)
+              : null,
+        ),
+        child: Stack(
+          children: [
+            if (!hasStream)
+              const Center(
+                child: Icon(Icons.videocam, color: Colors.white24, size: 36),
               ),
-              child: Text(
-                feed.online ? 'LIVE' : 'OFFLINE',
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: feed.online ? colors.accentTeal : colors.accentRose,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  feed.online ? 'LIVE' : 'OFFLINE',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
-          ),
-          if (feed.online && hasStream)
-            const Positioned(
-              left: 8,
-              top: 8,
-              child: Icon(
-                Icons.play_circle_filled,
-                color: Colors.white70,
-                size: 30,
+            if (feed.online && hasStream)
+              const Positioned(
+                left: 8,
+                top: 8,
+                child: Icon(
+                  Icons.play_circle_filled,
+                  color: Colors.white70,
+                  size: 30,
+                ),
               ),
-            ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ----------------------------------------------------------------------------
 // 5. SENSOR TAB – GRID + METRICS
-// ----------------------------------------------------------------------------
+
 class _SensorTab extends StatelessWidget {
   final OperationsRepository repository;
   const _SensorTab({required this.repository});
@@ -1482,9 +1570,8 @@ class _SensorTile extends StatelessWidget {
   }
 }
 
-// ----------------------------------------------------------------------------
 // HELPER WIDGETS
-// ----------------------------------------------------------------------------
+
 class _MetricWidget extends StatelessWidget {
   final String label;
   final String value;
@@ -1569,9 +1656,8 @@ Color _statusColor(BuildContext context, String status) {
   }
 }
 
-// ----------------------------------------------------------------------------
 // EXTENSION METHODS FOR LIST METRICS
-// ----------------------------------------------------------------------------
+
 extension AgvListExt on List<AgvTelemetry> {
   int get onlineCount => where((unit) => unit.online).length;
   int get activeCount =>

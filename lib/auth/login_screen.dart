@@ -302,7 +302,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Text(
-                                            'Accounts are created manually by the administrator in Firebase.',
+                                            'Accounts are created manually by the administrator ',
                                             style: GoogleFonts.inter(
                                               color: const Color(0xFFCEEAF0),
                                               fontSize: 13,
